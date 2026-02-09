@@ -7,18 +7,23 @@ const PORT = process.env.PORT || 8000;
 // HTTP server
 const server = http.createServer(app);
 
-// Socket.IO
+// ✅ Socket.IO with CORS
 export const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+    origin: [
+      "https://forehead-admin.vercel.app",
+      "http://localhost:5173",
+    ],
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
 });
 
 io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id);
+  console.log("🔌 Socket connected:", socket.id);
+
   socket.on("disconnect", () => {
-    console.log("Socket disconnected:", socket.id);
+    console.log("❌ Socket disconnected:", socket.id);
   });
 });
 
