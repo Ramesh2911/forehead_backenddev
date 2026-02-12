@@ -6,6 +6,7 @@ import authRoutes from "../routes/authRoutes.js";
 import otpRoutes from "../routes/otpRoutes.js";
 import retailerRoutes from "../routes/retailerRoutes.js";
 import moduleRoutes from "../routes/moduleRoutes.js";
+import subscriptionRoutes from "../routes/subscriptionRoutes.js";
 
 dotenv.config();
 
@@ -19,7 +20,6 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // allow requests with no origin (like Postman)
       if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
@@ -38,8 +38,9 @@ app.use(express.json());
 // routes
 app.use("/api", authRoutes);
 app.use("/api", otpRoutes);
-app.use("/api" , retailerRoutes)
-app.use("/api" , moduleRoutes)
+app.use("/api", retailerRoutes)
+app.use("/api", moduleRoutes)
+app.use("/api", subscriptionRoutes)
 
 // health check
 app.get("/", (req, res) => {
