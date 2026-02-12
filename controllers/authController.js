@@ -2,9 +2,22 @@ import db from "../config/db.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
-/* ===============================
-   SUPER ADMIN REGISTER (ONE TIME)
-================================ */
+//  current financial year 
+const getFinancialYear = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+
+  if (month >= 4) {
+    // April–Dec → current to next year
+    return `${year.toString().slice(-2)}${(year + 1).toString().slice(-2)}`;
+  } else {
+    // Jan–Mar → previous to current year
+    return `${(year - 1).toString().slice(-2)}${year.toString().slice(-2)}`;
+  }
+};
+
+// Super Admin Registration
 export const registerSuperAdmin = async (req, res) => {
   const { name, email, phone, password } = req.body;
 
@@ -41,9 +54,7 @@ export const registerSuperAdmin = async (req, res) => {
   }
 };
 
-/* ===============================
-   SUPER ADMIN LOGIN
-================================ */
+// Super Admin Login
 export const loginSuperAdmin = async (req, res) => {
   const { email, password } = req.body;
 
@@ -57,9 +68,11 @@ export const loginSuperAdmin = async (req, res) => {
         u.name,
         u.phone,
         u.email,
-        u.password
+        u.password,
+        up.permission_id
       FROM users u
       JOIN roles r ON r.id = u.role_id
+      LEFT JOIN user_permissions up ON up.user_id = u.id
       WHERE u.email = ? AND u.role_id = 1
       `,
       [email]
@@ -71,42 +84,65 @@ export const loginSuperAdmin = async (req, res) => {
         message: "Invalid credentials",
       });
     }
-
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
+ 
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
       return res.status(401).json({
         success: false,
         message: "Invalid credentials",
       });
     }
 
+    let permissionIds = [];
+    let permissions = [];
+
+    if (user.permission_id) {
+      permissionIds =
+        typeof user.permission_id === "string"
+          ? JSON.parse(user.permission_id)
+          : user.permission_id;
+
+      if (Array.isArray(permissionIds) && permissionIds.length > 0) {
+        const [permissionRows] = await db.query(
+          `
+          SELECT id, name, icon, iconColor
+          FROM permissions
+          WHERE id IN (?)
+          `,
+          [permissionIds]
+        );
+
+        permissions = permissionRows;
+      }
+    }
+   
     const accessToken = jwt.sign(
       {
         id: user.id,
         role_id: user.role_id,
         role: user.role_name,
+        permissions: permissionIds, 
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
-
+   
     const refreshToken = jwt.sign(
       { id: user.id },
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
-
+    
     await db.execute(
       `
       INSERT INTO user_tokens
       (user_id, access_token, refresh_token, device_type, ip_address, expires_at)
-      VALUES (?,?,?,?,?, DATE_ADD(NOW(), INTERVAL 7 DAY))
+      VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY))
       `,
-      [user.id, accessToken, refreshToken, "admin", req.ip]
+      [user.id, accessToken, refreshToken, "super admin", req.ip]
     );
-
-    // 🔥 FINAL RESPONSE
-    res.json({
+    
+    return res.json({
       success: true,
       message: "Login successful",
       access_token: accessToken,
@@ -118,20 +154,21 @@ export const loginSuperAdmin = async (req, res) => {
         name: user.name,
         phone: user.phone,
         email: user.email,
+        permissions: permissions, 
       },
     });
-  } catch (err) {
-    res.status(500).json({
+
+  } catch (error) {
+    console.error("Login Error:", error);
+    return res.status(500).json({
       success: false,
-      message: err.message,
+      message: "Server error",
     });
   }
 };
 
 
-/* ===============================
-   SUPER ADMIN LOGOUT
-================================ */
+// Super Admin Logout
 export const logoutSuperAdmin = async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
 
@@ -150,3 +187,96 @@ export const logoutSuperAdmin = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// Retailer Registration
+export const registerRetailer = async (req, res) => {
+  try {
+    const {
+      name,
+      phone,
+      state_id,
+      dist_id,
+      city_id,
+      shop_name,
+      shop_type
+    } = req.body;
+
+    if (
+      !name ||
+      !phone ||
+      !state_id ||
+      !dist_id ||
+      !city_id ||
+      !shop_name ||
+      !shop_type
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All mandatory fields are required"
+      });
+    }
+
+    const [existingUser] = await db.execute(
+      `SELECT id FROM users WHERE phone = ?`,
+      [phone]
+    );
+
+    if (existingUser.length > 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Phone number already registered"
+      });
+    }
+
+    const [userResult] = await db.execute(
+      `INSERT INTO users
+       (role_id, name, phone, is_verified, status)
+       VALUES (?, ?, ?, ?, ?)`,
+      [3, name, phone, 0, "ACTIVE"]
+    );
+
+    const userId = userResult.insertId;
+
+    const financialYear = getFinancialYear();
+
+    const [lastRetailer] = await db.execute(
+      `SELECT retailerId
+       FROM retailers
+       WHERE retailerId LIKE ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [`FH-TM-${financialYear}%`]
+    );
+
+    let nextNumber = 1;
+
+    if (lastRetailer.length > 0) {
+      const lastId = lastRetailer[0].retailerId;
+      nextNumber = parseInt(lastId.slice(-3), 10) + 1;
+    }
+
+    const retailerId = `TM-${financialYear}${String(nextNumber).padStart(3, "0")}`;
+
+    await db.execute(
+      `INSERT INTO retailers
+       (user_id, retailerId, state_id, dist_id, city_id, shop_name, shop_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, retailerId, state_id, dist_id, city_id, shop_name, shop_type]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Retailer registered successfully",
+      data: {
+        retailerId,
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
