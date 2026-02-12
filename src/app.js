@@ -37,12 +37,9 @@ app.use(express.json());
 
 // routes
 app.use("/api", authRoutes);
-<<<<<<< HEAD
 app.use("/api", otpRoutes);
 app.use("/api" , retailerRoutes)
 app.use("/api" , moduleRoutes)
-=======
->>>>>>> d86919107763488eca072155462b6d005a901476
 
 // health check
 app.get("/", (req, res) => {
