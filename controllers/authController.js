@@ -84,7 +84,7 @@ export const loginSuperAdmin = async (req, res) => {
         message: "Invalid credentials",
       });
     }
- 
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({
@@ -115,24 +115,24 @@ export const loginSuperAdmin = async (req, res) => {
         permissions = permissionRows;
       }
     }
-   
+
     const accessToken = jwt.sign(
       {
         id: user.id,
         role_id: user.role_id,
         role: user.role_name,
-        permissions: permissionIds, 
+        permissions: permissionIds,
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
-   
+
     const refreshToken = jwt.sign(
       { id: user.id },
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
-    
+
     await db.execute(
       `
       INSERT INTO user_tokens
@@ -141,7 +141,7 @@ export const loginSuperAdmin = async (req, res) => {
       `,
       [user.id, accessToken, refreshToken, "super admin", req.ip]
     );
-    
+
     return res.json({
       success: true,
       message: "Login successful",
@@ -154,7 +154,7 @@ export const loginSuperAdmin = async (req, res) => {
         name: user.name,
         phone: user.phone,
         email: user.email,
-        permissions: permissions, 
+        permissions: permissions,
       },
     });
 
@@ -166,7 +166,6 @@ export const loginSuperAdmin = async (req, res) => {
     });
   }
 };
-
 
 // Super Admin Logout
 export const logoutSuperAdmin = async (req, res) => {
@@ -280,3 +279,74 @@ export const registerRetailer = async (req, res) => {
   }
 };
 
+// Customer Registration
+export const customerRegister = async (req, res) => {
+  try {
+    const {
+      name,
+      phone,
+      email,
+      latitude,
+      longitude,
+      address,
+      police_station,
+      pin,
+    } = req.body;
+
+    if (
+      !name ||
+      !phone ||
+      !latitude ||
+      !longitude ||
+      !address ||
+      !pin
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be provided",
+      });
+    }
+
+    const [existingUser] = await db.query(
+      "SELECT id FROM users WHERE phone = ?",
+      [phone]
+    );
+
+    if (existingUser.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already registered",
+      });
+    }
+
+    const [userResult] = await db.query(
+      `INSERT INTO users
+        (role_id, name, phone, email, password, is_verified, status, created_at, updated_at)
+       VALUES
+        (4, ?, ?, ?, NULL, 0, 'ACTIVE', NOW(), NOW())`,
+      [name, phone, email || null]
+    );
+
+    const userId = userResult.insertId;
+
+    await db.query(
+      `INSERT INTO customers
+        (user_id, latitude, longitude, address, police_station, pin, created_at)
+       VALUES
+        (?, ?, ?, ?, ?, ?, NOW())`,
+      [userId, latitude, longitude, address, police_station || null, pin]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Customer registered successfully",
+    });
+
+  } catch (error) {
+    console.error("Register Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+};

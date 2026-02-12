@@ -7,6 +7,7 @@ import otpRoutes from "../routes/otpRoutes.js";
 import retailerRoutes from "../routes/retailerRoutes.js";
 import moduleRoutes from "../routes/moduleRoutes.js";
 import subscriptionRoutes from "../routes/subscriptionRoutes.js";
+import customerRoutes from "../routes/customerRoutes.js";
 
 dotenv.config();
 
@@ -41,6 +42,7 @@ app.use("/api", otpRoutes);
 app.use("/api", retailerRoutes)
 app.use("/api", moduleRoutes)
 app.use("/api", subscriptionRoutes)
+app.use("/api", customerRoutes)
 
 // health check
 app.get("/", (req, res) => {

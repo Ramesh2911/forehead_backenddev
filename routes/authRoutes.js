@@ -3,7 +3,8 @@ import {
   registerSuperAdmin,
   loginSuperAdmin,
   logoutSuperAdmin,
-  registerRetailer
+  registerRetailer,
+  customerRegister
 } from "../controllers/authController.js";
 
 import auth from "../middlewares/auth.middleware.js";
@@ -16,9 +17,10 @@ authRoutes.post("/super-admin/login", loginSuperAdmin);
 authRoutes.post(
   "/super-admin/logout",
   auth,
-  role(1), 
+  role(1),
   logoutSuperAdmin
 );
 authRoutes.post("/retailer-register", registerRetailer);
+authRoutes.post("/customer-register", customerRegister)
 
 export default authRoutes;
