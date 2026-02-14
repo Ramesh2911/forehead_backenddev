@@ -67,6 +67,11 @@ export const getRetailerDetails = async (req, res) => {
         r.city_id,
         c.city_name,
 
+        r.station_id,
+        ps.station_name AS station_name,
+
+        r.pin,
+
         r.shop_type AS shop_type_id,
         st.name AS shop_type_name,
 
@@ -90,7 +95,9 @@ export const getRetailerDetails = async (req, res) => {
       LEFT JOIN states s ON s.id = r.state_id
       LEFT JOIN districts d ON d.id = r.dist_id
       LEFT JOIN cities c ON c.id = r.city_id
+      LEFT JOIN police_stations ps ON ps.id = r.station_id
       LEFT JOIN shop_types st ON st.id = r.shop_type
+
       WHERE r.id = ?
       `,
       [id]
@@ -117,3 +124,4 @@ export const getRetailerDetails = async (req, res) => {
     });
   }
 };
+

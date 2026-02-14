@@ -54,11 +54,18 @@ export const registerSuperAdmin = async (req, res) => {
   }
 };
 
-// Super Admin Login
-export const loginSuperAdmin = async (req, res) => {
-  const { email, password } = req.body;
+// Login
+export const login = async (req, res) => {
+  const { phone, password } = req.body;
 
   try {
+    if (!phone || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone and password are required",
+      });
+    }
+
     const [[user]] = await db.execute(
       `
       SELECT 
@@ -69,13 +76,14 @@ export const loginSuperAdmin = async (req, res) => {
         u.phone,
         u.email,
         u.password,
+        u.default_password,
         up.permission_id
       FROM users u
       JOIN roles r ON r.id = u.role_id
       LEFT JOIN user_permissions up ON up.user_id = u.id
-      WHERE u.email = ? AND u.role_id = 1
+      WHERE u.phone = ?
       `,
-      [email]
+      [phone]
     );
 
     if (!user) {
@@ -86,6 +94,7 @@ export const loginSuperAdmin = async (req, res) => {
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
+
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -93,6 +102,7 @@ export const loginSuperAdmin = async (req, res) => {
       });
     }
 
+    // ✅ Handle permissions
     let permissionIds = [];
     let permissions = [];
 
@@ -116,6 +126,26 @@ export const loginSuperAdmin = async (req, res) => {
       }
     }
 
+    // ✅ Dynamic device_type
+    let deviceType = ""; // default empty
+
+    if (user.role_id === 1) {
+      deviceType = "Super Admin";
+    } else if (user.role_id === 2) {
+      deviceType = "Admin";
+    }
+
+    // ✅ Capture device info from login request
+    const deviceInfo = req.headers["user-agent"] || "";
+
+    // ✅ Proper IP address
+    const ipAddress =
+      req.headers["x-forwarded-for"]?.split(",")[0] ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      "";
+
+    // ✅ Generate Tokens
     const accessToken = jwt.sign(
       {
         id: user.id,
@@ -133,13 +163,21 @@ export const loginSuperAdmin = async (req, res) => {
       { expiresIn: "30d" }
     );
 
+    // ✅ Insert into user_tokens
     await db.execute(
       `
       INSERT INTO user_tokens
-      (user_id, access_token, refresh_token, device_type, ip_address, expires_at)
-      VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY))
+      (user_id, access_token, refresh_token, device_type, device_info, ip_address, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY))
       `,
-      [user.id, accessToken, refreshToken, "super admin", req.ip]
+      [
+        user.id,
+        accessToken,
+        refreshToken,
+        deviceType,
+        deviceInfo,   // 👈 now storing actual device
+        ipAddress,
+      ]
     );
 
     return res.json({
@@ -154,6 +192,7 @@ export const loginSuperAdmin = async (req, res) => {
         name: user.name,
         phone: user.phone,
         email: user.email,
+        defaultPassword: user.default_password,
         permissions: permissions,
       },
     });
@@ -350,3 +389,178 @@ export const customerRegister = async (req, res) => {
     });
   }
 };
+
+//Admin Registration
+export const registerAdmin = async (req, res) => {
+  try {
+    const { name, phone, email, permissions } = req.body;
+
+    if (
+      !name ||
+      !phone ||
+      !email ||
+      !permissions ||
+      !Array.isArray(permissions) ||
+      permissions.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be provided",
+      });
+    }
+
+    // Check phone exists
+    const [existingUser] = await db.query(
+      "SELECT id FROM users WHERE phone = ?",
+      [phone]
+    );
+
+    if (existingUser.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already registered",
+      });
+    }
+
+    const defaultPassword = "FTM@2526";
+    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+
+    await db.query("START TRANSACTION");
+
+    // Insert user
+    const [result] = await db.query(
+      `INSERT INTO users 
+      (role_id, name, phone, email, password, is_verified, default_password, status) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        2,
+        name,
+        phone,
+        email,
+        hashedPassword,
+        0,
+        0,
+        "ACTIVE",
+      ]
+    );
+
+    const userId = result.insertId;
+
+    // ✅ Store permissions as JSON array
+    await db.query(
+      `INSERT INTO user_permissions (user_id, permission_id) VALUES (?, ?)`,
+      [
+        userId,
+        JSON.stringify(permissions), // 🔥 important
+      ]
+    );
+
+    await db.query("COMMIT");
+
+    return res.status(200).json({
+      success: true,
+      message: "Admin registered successfully",
+      data: {
+        user_id: userId,
+        phone,
+        permissions,
+        default_password: defaultPassword,
+      },
+    });
+
+  } catch (error) {
+    await db.query("ROLLBACK");
+    console.error("Admin Registration Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
+//Change Password
+export const changePassword = async (req, res) => {
+  try {
+    const userId = req.user.id; 
+    const { oldPassword, newPassword, confirmPassword } = req.body;
+    console.log(req.body,'ll');
+    
+    
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password and confirm password do not match",
+      });
+    }
+    const passwordRegex =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+
+    if (!passwordRegex.test(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password must be minimum 8 characters and include uppercase, lowercase, number and special character",
+      });
+    }
+    
+    const [rows] = await db.query(
+      "SELECT id, password FROM users WHERE id = ?",
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const user = rows[0];
+   
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        message: "Old password is incorrect",
+      });
+    }
+    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password cannot be same as old password",
+      });
+    }
+   
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    await db.query(
+      "UPDATE users SET password = ?, default_password = 1 WHERE id = ?",
+      [hashedPassword, userId]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Password updated successfully",
+    });
+
+  } catch (error) {
+    console.error("Change Password Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+

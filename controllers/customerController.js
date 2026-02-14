@@ -4,16 +4,25 @@ import db from "../config/db.js";
 export const getAllCustomers = async (req, res) => {
     try {
         const [rows] = await db.query(
-            `SELECT 
-          c.id AS customer_id,
-          u.id AS user_id,
-          u.name,
-          u.phone,
-          c.police_station
-       FROM users u
-       JOIN customers c ON u.id = c.user_id
-       WHERE u.role_id = 4
-       ORDER BY c.id DESC`
+            `
+            SELECT 
+                c.id AS customer_id,
+                u.id AS user_id,
+                u.name,
+                u.phone,
+
+                c.station_id,
+                ps.station_name AS station_name
+
+            FROM users u
+            JOIN customers c ON u.id = c.user_id
+
+            LEFT JOIN police_stations ps 
+                ON ps.id = c.station_id
+
+            WHERE u.role_id = 4
+            ORDER BY c.id DESC
+            `
         );
 
         if (rows.length === 0) {
@@ -51,25 +60,33 @@ export const getCustomerDetails = async (req, res) => {
         }
 
         const [rows] = await db.query(
-            `SELECT 
-          u.id AS user_id,
-          u.name,
-          u.phone,
-          u.email,
-          u.is_verified,
-          u.status,
+            `
+            SELECT 
+                u.id AS user_id,
+                u.name,
+                u.phone,
+                u.email,
+                u.is_verified,
+                u.status,
 
-          c.id AS customer_id,
-          c.latitude,
-          c.longitude,
-          c.address,
-          c.police_station,
-          c.pin,
-          c.created_at
+                c.id AS customer_id,
+                c.latitude,
+                c.longitude,
+                c.address,
+                c.station_id,
+                ps.station_name AS station_name,
+                c.pin,
+                c.created_at
 
-       FROM users u
-       JOIN customers c ON u.id = c.user_id
-       WHERE u.id = ? AND u.role_id = 4`,
+            FROM users u
+            JOIN customers c ON u.id = c.user_id
+
+            LEFT JOIN police_stations ps 
+                ON ps.id = c.station_id
+
+            WHERE u.id = ? 
+            AND u.role_id = 4
+            `,
             [id]
         );
 
@@ -93,3 +110,4 @@ export const getCustomerDetails = async (req, res) => {
         });
     }
 };
+
